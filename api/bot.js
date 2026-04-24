@@ -35,8 +35,9 @@ bot.callbackQuery("view_tech", async (ctx) => {
     const { data: staff, error } = await supabase.from('staff_mapping').select('*');
     
     if (error || !staff) {
-        return ctx.reply("暂时无法获取技师排班，请直接联系总台。");
-    }
+    console.log("Supabase Error:", error);
+    return ctx.reply(`【系统诊断报告】\n抓到错误了！原因：${error ? error.message : "数据空"} \nURL状态：${!!process.env.SUPABASE_URL}`);
+}
 
     const keyboard = new InlineKeyboard();
     staff.forEach(item => {
