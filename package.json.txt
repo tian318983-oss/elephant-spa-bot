@@ -1,0 +1,12 @@
+{
+  "name": "elephant-spa-bot",
+  "version": "1.0.0",
+  "main": "index.js",
+  "dependencies": {
+    "grammy": "^1.20.0",
+    "@supabase/supabase-js": "^2.39.0"
+  },
+  "scripts": {
+    "start": "node index.js"
+  }
+}
