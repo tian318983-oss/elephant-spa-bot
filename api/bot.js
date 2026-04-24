@@ -4,19 +4,20 @@ const { createClient } = require("@supabase/supabase-js");
 const bot = new Bot(process.env.BOT_TOKEN);
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
-// 埋点记录函数
+// 埋点追踪核心引擎
 async function trackAction(ctx, actionType) {
     try {
         const { id, username } = ctx.from;
         await supabase.from('user_logs').insert([
             { tg_id: id, username: username || 'unknown', action_type: actionType }
         ]);
+        console.log(`[成功记录] 用户 ${username || id} 执行动作: ${actionType}`);
     } catch (e) {
-        console.error("数据记录失败:", e);
+        console.error("记录失败:", e);
     }
 }
 
-// /start 指令
+// 指令：/start
 bot.command("start", async (ctx) => {
     await trackAction(ctx, "START_BOT");
     const keyboard = new InlineKeyboard()
@@ -28,27 +29,65 @@ bot.command("start", async (ctx) => {
     });
 });
 
-// 动态获取技师并展示
+// 【核心改造 1】发送图文瀑布流
 bot.callbackQuery("view_tech", async (ctx) => {
     await trackAction(ctx, "CLICK_TECH_LIST");
     
+    // 消除按钮上的转圈圈加载动画
+    await ctx.answerCallbackQuery();
+
     const { data: staff, error } = await supabase.from('staff_mapping').select('*');
     
     if (error || !staff) {
-    console.log("Supabase Error:", error);
-    return ctx.reply(`【系统诊断报告】\n抓到错误了！原因：${error ? error.message : "数据空"} \nURL状态：${!!process.env.SUPABASE_URL}`);
-}
+        return ctx.reply("技师排班获取中，请稍后再试或联系总台。");
+    }
 
-    const keyboard = new InlineKeyboard();
-    staff.forEach(item => {
-        keyboard.url(`预约 [${item.tech_name}]`, item.cs_url).row();
-    });
+    await ctx.reply("✨ 以下是今日值班名师：");
 
-    await ctx.reply("✨ 以下是今日值班名师，点击即可直接咨询预约：", {
-        reply_markup: keyboard
-    });
+    // 循环给每个技师发一张专属图文卡片
+    for (const item of staff) {
+        // 注意：这里不再是 url 跳转，而是内部暗号 book_tech_ + 技师ID
+        const keyboard = new InlineKeyboard()
+            .text(`💖 立即预约 [${item.tech_name}]`, `book_tech_${item.id}`);
+
+        // 如果有图片就发图片，没有图片就发纯文字
+        if (item.media_url) {
+            await ctx.replyWithPhoto(item.media_url, {
+                caption: `【${item.tech_name}】\n手法专业，为您扫除一天的疲惫。点击下方获取专属服务👇`,
+                reply_markup: keyboard
+            });
+        } else {
+            await ctx.reply(`【${item.tech_name}】\n点击下方获取专属服务👇`, {
+                reply_markup: keyboard
+            });
+        }
+    }
+});
+
+// 【核心改造 2】精准捕获“预约意向”并分发客服链接
+bot.callbackQuery(/book_tech_(.+)/, async (ctx) => {
+    const techId = ctx.match[1]; // 提取出用户点击了几号技师
+    
+    // 1. 【极具价值的静默追踪】记录该用户对这个技师产生了明确意向！
+    await trackAction(ctx, `INTENT_BOOK_TECH_ID_${techId}`);
+    
+    // 2. 去数据库查这个技师对应的真实客服链接
+    const { data: techData } = await supabase
+        .from('staff_mapping')
+        .select('tech_name, cs_url')
+        .eq('id', techId)
+        .single();
+
+    if (techData) {
+        // 3. 将客服链接发给用户
+        const keyboard = new InlineKeyboard().url("💬 点击此处跳转专属客服", techData.cs_url);
+        await ctx.reply(`您选择了【${techData.tech_name}】🐘\n\n我们的前台已准备好为您安排档期，请点击下方按钮确认预约时间：`, {
+            reply_markup: keyboard
+        });
+    }
+
     await ctx.answerCallbackQuery();
 });
 
-// 【核心修改点】：删除 bot.start()，替换为 Vercel 专用的 Webhook 导出
-module.exports = webhookCallback(bot, "http");
+// Vercel 接口声明
+module.exports = webhookCallback(bot, "https");
