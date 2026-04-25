@@ -1,6 +1,6 @@
 const { createClient } = require("@supabase/supabase-js");
 
-// 从 Vercel 环境变量中读取秘钥和密码（彻底脱离硬编码）
+// 从 Vercel 环境变量中读取秘钥和密码
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD; 
@@ -39,11 +39,8 @@ module.exports = async (req, res) => {
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>🐘 大象 SPA | 高级管理舱</title>
-        <!-- 引入高级 UI 框架 Tailwind CSS -->
         <script src="https://cdn.tailwindcss.com"></script>
-        <!-- 引入美观的弹窗插件 SweetAlert2 -->
         <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-        <!-- 引入 Supabase 上传引擎 -->
         <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
         <style>
             body { background-color: #f3f4f6; }
@@ -52,11 +49,10 @@ module.exports = async (req, res) => {
     </head>
     <body class="min-h-screen text-gray-800 font-sans p-4 md:p-8">
         
-        <!-- 顶部导航 -->
         <header class="max-w-6xl mx-auto mb-8 flex justify-between items-center">
             <div>
                 <h1 class="text-3xl font-extrabold text-gray-900 tracking-tight">🐘 大象 SPA</h1>
-                <p class="text-sm text-gray-500 mt-1">智能私域管理舱 v2.0</p>
+                <p class="text-sm text-gray-500 mt-1">智能私域管理舱 v2.1</p>
             </div>
             <div class="px-4 py-2 bg-green-100 text-green-700 rounded-full text-sm font-semibold shadow-sm">
                 系统运行正常
@@ -65,7 +61,6 @@ module.exports = async (req, res) => {
 
         <div class="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-12 gap-8">
             
-            <!-- 左侧：新增面板 -->
             <div class="md:col-span-5 space-y-6">
                 <div class="glass-card rounded-2xl shadow-xl p-6 border border-gray-100">
                     <h2 class="text-xl font-bold mb-6 flex items-center text-gray-800">
@@ -114,7 +109,6 @@ module.exports = async (req, res) => {
                 </div>
             </div>
 
-            <!-- 右侧：当前阵容 -->
             <div class="md:col-span-7">
                 <div class="glass-card rounded-2xl shadow-xl p-6 border border-gray-100 min-h-[500px]">
                     <h2 class="text-xl font-bold mb-6 flex items-center text-gray-800">
@@ -148,11 +142,13 @@ module.exports = async (req, res) => {
         </div>
 
         <script>
-            const supabase = supabase.createClient('${supabaseUrl}', '${supabaseKey}');
+            // 【核心修复点】给对象改名为 mySupabase，彻底解决系统命名冲突！
+            const mySupabase = window.supabase.createClient('${supabaseUrl}', '${supabaseKey}');
 
             function updateFileName(input) {
                 const display = document.getElementById('fileNameDisplay');
                 if (input.files && input.files[0]) {
+                    // 当你选择文件后，界面上的文字会变成蓝色的文件名
                     display.innerText = '已选择: ' + input.files[0].name;
                     display.classList.add('text-indigo-600', 'font-semibold');
                 }
@@ -176,7 +172,8 @@ module.exports = async (req, res) => {
                     const fileExt = file.name.split('.').pop();
                     const fileName = Date.now() + '_' + Math.random().toString(36).substring(7) + '.' + fileExt;
                     
-                    const { error: uploadError } = await supabase.storage.from('avatars').upload(fileName, file);
+                    // 使用修改后的名字 mySupabase 进行上传
+                    const { error: uploadError } = await mySupabase.storage.from('avatars').upload(fileName, file);
                     if (uploadError) throw new Error(uploadError.message);
                     
                     const mediaUrl = '${supabaseUrl}/storage/v1/object/public/avatars/' + fileName;
@@ -201,7 +198,7 @@ module.exports = async (req, res) => {
             async function deleteStaff(id) {
                 const result = await Swal.fire({
                     title: '危险操作',
-                    text: "确定要下架这位技师吗？操作不可逆！",
+                    text: "确定要下架这位技师吗？",
                     icon: 'warning',
                     showCancelButton: true,
                     confirmButtonColor: '#ef4444',
