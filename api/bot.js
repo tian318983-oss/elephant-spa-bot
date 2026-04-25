@@ -28,7 +28,7 @@ bot.command("start", async (ctx) => {
     });
 });
 
-// 【全新升级】：单图聚合折叠模式，完美解决上百技师刷屏问题
+// 【第一级：总览聚合模式】
 bot.callbackQuery("view_tech", async (ctx) => {
     await trackAction(ctx, "CLICK_TECH_LIST");
     await ctx.answerCallbackQuery();
@@ -39,34 +39,64 @@ bot.callbackQuery("view_tech", async (ctx) => {
         return ctx.reply("技师排班获取中，请稍后再试或联系总台。");
     }
 
-    // 1. 准备聚合文字列表
-    let captionMsg = "✨ 【今日值班名师阵容】\n点击下方对应按钮，一键直达专属客服预约：\n\n";
+    let captionMsg = "✨ 【今日值班名师阵容】\n点击下方对应技师，查看专属资料卡👇\n\n";
     const keyboard = new InlineKeyboard();
 
-    // 2. 循环生成技师列表和整齐的网格按钮
+    // 循环生成九宫格按钮（改为内部指令：预览资料）
     staff.forEach((item, index) => {
-        // 生成星级
         const starStr = '⭐'.repeat(item.rating || 5);
-        
-        // 拼接到总文本中
         captionMsg += `▪️ ${item.tech_name} ${starStr}\n`;
         
-        // 添加到按钮矩阵中（保留一步直达跳转）
-        keyboard.url(`💖 预约 [${item.tech_name}]`, item.cs_url);
+        // 【核心修改】：不直接跳转，而是发送一个带着技师 ID 的暗号进行预览
+        keyboard.text(`🔍 查看 [${item.tech_name}]`, `preview_${item.id}`);
         
-        // 【核心逻辑】：每添加 2 个按钮，强制换行，形成整齐的九宫格排版
         if ((index + 1) % 2 === 0) {
             keyboard.row();
         }
     });
 
-    // 3. 发送一条总领消息（采用一张高端的默认封面图，替代刷屏照片）
     const coverImageUrl = "https://images.unsplash.com/photo-1544161515-4ab6ce6db874?q=80&w=800&auto=format&fit=crop"; 
     
     await ctx.replyWithPhoto(coverImageUrl, { 
         caption: captionMsg, 
         reply_markup: keyboard 
     });
+});
+
+// 【第二级：专属资料卡弹出模式】
+bot.callbackQuery(/preview_(.+)/, async (ctx) => {
+    const techId = ctx.match[1];
+    
+    // 【附赠惊喜】：重新加回精确意向追踪，现在你知道谁看了谁的照片了！
+    await trackAction(ctx, `PREVIEW_TECH_ID_${techId}`);
+    
+    // 消除转圈圈加载状态
+    await ctx.answerCallbackQuery();
+
+    // 从数据库单独拉取这位被点击技师的详细信息
+    const { data: tech, error } = await supabase.from('staff_mapping').select('*').eq('id', techId).single();
+
+    if (error || !tech) {
+        return ctx.reply("资料卡生成失败，请重试或直接联系客服。");
+    }
+
+    const starStr = '⭐'.repeat(tech.rating || 5);
+    const captionMsg = `【${tech.tech_name}】 ${starStr}\n\n手法专业，为您扫除一天的疲惫。名师档期紧张，请点击下方按钮立刻联系专属客服安排时间👇`;
+
+    // 专属的一键跳转按钮
+    const keyboard = new InlineKeyboard()
+        .url(`💬 确认预约 [${tech.tech_name}]`, tech.cs_url);
+
+    // 发送带有照片/视频的专属名片
+    if (tech.media_url) {
+        if(tech.media_url.includes('.mp4')) {
+            await ctx.replyWithVideo(tech.media_url, { caption: captionMsg, reply_markup: keyboard });
+        } else {
+            await ctx.replyWithPhoto(tech.media_url, { caption: captionMsg, reply_markup: keyboard });
+        }
+    } else {
+        await ctx.reply(captionMsg, { reply_markup: keyboard });
+    }
 });
 
 // Vercel 接口声明
