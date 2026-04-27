@@ -31,7 +31,7 @@ module.exports = async (req, res) => {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>🐘 大象 SPA | 商业管理舱</title>
+        <title>🐘 大象 SPA | 去中心化管理舱</title>
         <script src="https://cdn.tailwindcss.com"></script>
         <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
         <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -41,7 +41,10 @@ module.exports = async (req, res) => {
         <header class="max-w-6xl mx-auto mb-8 flex justify-between items-center">
             <div>
                 <h1 class="text-3xl font-extrabold tracking-tight">🐘 大象 SPA</h1>
-                <p class="text-sm text-gray-500 mt-1">智能收银与管理舱 v4.0</p>
+                <p class="text-sm text-gray-500 mt-1">去中心化直连管理舱 v6.0</p>
+            </div>
+            <div class="px-4 py-2 bg-blue-100 text-blue-700 rounded-full text-sm font-semibold shadow-sm">
+                Web3 直连模式已开启
             </div>
         </header>
 
@@ -56,11 +59,12 @@ module.exports = async (req, res) => {
                         <div class="flex gap-4">
                             <div class="w-1/2">
                                 <label class="text-xs text-gray-500">星级</label>
-                                <select id="rating" class="w-full px-4 py-2 border rounded-lg"><option value="5">⭐⭐⭐⭐⭐</option><option value="4">⭐⭐⭐⭐</option></select>
+                                <select id="rating" class="w-full px-4 py-2 border rounded-lg"><option value="5">⭐⭐⭐⭐⭐</option><option value="4">⭐⭐⭐⭐</option><option value="3">⭐⭐⭐</option><option value="2">⭐⭐</option><option value="1">⭐</option></select>
                             </div>
                             <div class="w-1/2">
-                                <label class="text-xs text-gray-500">定金/服务费 (元)</label>
-                                <input type="number" id="price" placeholder="如：99" class="w-full px-4 py-2 border rounded-lg text-indigo-600 font-bold">
+                                <!-- 视觉修复核心点：修改单位为 USDT -->
+                                <label class="text-xs text-blue-600 font-bold">定金/服务费 (USDT)</label>
+                                <input type="number" id="price" placeholder="如：15" class="w-full px-4 py-2 border border-blue-300 rounded-lg text-blue-700 font-bold focus:ring-2 focus:ring-blue-500">
                             </div>
                         </div>
 
@@ -70,7 +74,7 @@ module.exports = async (req, res) => {
                             <p class="text-sm text-indigo-600 font-bold" id="fileNameDisplay">点击选择形象照片</p>
                             <input id="fileUpload" type="file" class="sr-only" accept="image/*,video/mp4" onchange="document.getElementById('fileNameDisplay').innerText = '已选: '+this.files[0].name">
                         </div>
-                        <button id="submitBtn" onclick="saveStaff()" class="w-full py-3 bg-indigo-600 text-white rounded-lg font-bold">📤 确认上架并开启收款</button>
+                        <button id="submitBtn" onclick="saveStaff()" class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold transition-colors">📤 确认上架并开启 USDT 收款</button>
                     </div>
                 </div>
             </div>
@@ -80,17 +84,19 @@ module.exports = async (req, res) => {
                     <h2 class="text-xl font-bold mb-6">👥 当前服务阵容</h2>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         ${staff.map(s => `
-                            <div class="bg-white border rounded-xl overflow-hidden hover:shadow-lg relative group">
+                            <div class="bg-white border rounded-xl overflow-hidden hover:shadow-lg relative group transition-shadow">
                                 <div class="h-40 bg-gray-100 relative">
                                     <img src="${s.media_url}" class="w-full h-full object-cover">
-                                    <button onclick="deleteStaff(${s.id})" class="absolute top-2 right-2 bg-red-500 text-white px-3 py-1 rounded text-xs opacity-0 group-hover:opacity-100 transition-opacity">下架</button>
+                                    <button onclick="deleteStaff(${s.id})" class="absolute top-2 right-2 bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-xs opacity-0 group-hover:opacity-100 transition-opacity shadow-sm">下架</button>
                                 </div>
                                 <div class="p-4">
-                                    <h3 class="font-bold flex justify-between">
-                                        <span>${s.tech_name}</span>
-                                        <span class="text-green-600">￥${s.price || 0}</span>
+                                    <h3 class="font-bold flex justify-between items-center">
+                                        <span class="truncate pr-2">${s.tech_name}</span>
+                                        <!-- 视觉修复核心点：列表显示为 USDT -->
+                                        <span class="text-blue-600 whitespace-nowrap">$${s.price || 0} USDT</span>
                                     </h3>
-                                    <p class="text-xs text-yellow-500">${'⭐'.repeat(s.rating || 5)}</p>
+                                    <p class="text-xs text-yellow-500 mt-1">${'⭐'.repeat(s.rating || 5)}</p>
+                                    <a href="${s.cs_url}" target="_blank" class="text-xs text-gray-400 hover:text-indigo-600 truncate block mt-2">核销客服链接 ↗</a>
                                 </div>
                             </div>
                         `).join('')}
@@ -111,7 +117,7 @@ module.exports = async (req, res) => {
                 const price = document.getElementById('price').value;
 
                 if(!password || !name || !cs || !file || !price) return Swal.fire('提示', '请填完所有信息', 'warning');
-                btn.disabled = true; btn.innerText = "上传中...";
+                btn.disabled = true; btn.innerText = "加密上传中...";
 
                 try {
                     const fileName = Date.now() + '_' + file.name;
@@ -124,11 +130,12 @@ module.exports = async (req, res) => {
                         body: JSON.stringify({ password, tech_name: name, media_url: mediaUrl, cs_url: cs, rating, price })
                     });
                     location.reload();
-                } catch (err) { alert(err.message); btn.disabled = false; }
+                } catch (err) { alert(err.message); btn.disabled = false; btn.innerText = "确认上架并开启 USDT 收款"; }
             }
             async function deleteStaff(id) {
                 const password = document.getElementById('pass').value;
                 if(!password) return alert('先在左侧输入密码');
+                if(!confirm('确定要下架吗？')) return;
                 await fetch('/api/admin', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ password, id, action: 'delete' })});
                 location.reload();
             }
