@@ -3,9 +3,11 @@ const { createClient } = require("@supabase/supabase-js");
 
 const bot = new Bot(process.env.BOT_TOKEN);
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
-const PAYMENT_TOKEN = process.env.PAYMENT_TOKEN;
 
-// 【全链路数据埋点引擎】
+// 获取店里的真实 USDT 钱包地址，如果没有配置则显示提示词
+const USDT_WALLET = process.env.USDT_WALLET || "未配置钱包地址，请联系客服";
+
+// 全链路数据埋点引擎
 async function trackAction(ctx, actionType) {
     try {
         const { id, username } = ctx.from;
@@ -54,15 +56,16 @@ bot.callbackQuery(/preview_(.+)/, async (ctx) => {
     const { data: tech } = await supabase.from('staff_mapping').select('*').eq('id', techId).single();
     if (!tech) return ctx.reply("读取失败。");
 
-    const priceText = tech.price > 0 ? `￥${tech.price}` : "免费咨询";
-    const captionMsg = `【${tech.tech_name}】 ${'⭐'.repeat(tech.rating || 5)}\n\n💎 预约定金/服务费：${priceText}\n\n档期紧张，您可以选择立刻支付定金锁单，或先联系客服咨询详情👇`;
+    const priceText = tech.price > 0 ? `$${tech.price} USDT` : "免费咨询";
+    const captionMsg = `【${tech.tech_name}】 ${'⭐'.repeat(tech.rating || 5)}\n\n💎 预约定金/服务费：${priceText}\n\n档期紧张，您可以选择使用 USDT 支付定金自动锁单，或联系客服人工预约👇`;
 
     const keyboard = new InlineKeyboard();
     
-    if (PAYMENT_TOKEN && tech.price > 0) {
-        keyboard.text(`💳 支付锁单 (￥${tech.price})`, `pay_${tech.id}`).row();
+    // 只要有价格，就展示直连转账按钮
+    if (tech.price > 0) {
+        keyboard.text(`💎 使用 USDT(TRC20) 支付锁单`, `direct_pay_${tech.id}`).row();
     }
-    keyboard.url(`💬 还是想先联系客服`, tech.cs_url);
+    keyboard.url(`💬 还是想联系人工客服`, tech.cs_url);
 
     if (tech.media_url) {
         if(tech.media_url.includes('.mp4')) {
@@ -75,57 +78,39 @@ bot.callbackQuery(/preview_(.+)/, async (ctx) => {
     }
 });
 
-// 4. 发起支付账单 (加入防弹报错机制)
-bot.callbackQuery(/pay_(.+)/, async (ctx) => {
+// ==========================================
+// 【终极方案】：去中心化 P2P 直连收银台
+// ==========================================
+bot.callbackQuery(/direct_pay_(.+)/, async (ctx) => {
     const techId = ctx.match[1];
-    await trackAction(ctx, `CLICK_PAY_TECH_ID_${techId}`); 
-    
+    await trackAction(ctx, `CLICK_DIRECT_PAY_${techId}`); 
+    await ctx.answerCallbackQuery();
+
     const { data: tech } = await supabase.from('staff_mapping').select('*').eq('id', techId).single();
     if (!tech) return;
 
-    const amountInCents = tech.price * 100;
+    // 构建一个极其易读的付款账单，使用 MarkdownV2 方便用户一键复制钱包地址
+    const invoiceMsg = `🧾 **大象 SPA 专属锁单凭证**
 
-    try {
-        // 尝试发送账单
-        await ctx.replyWithInvoice(
-            `🐘 预约 [${tech.tech_name}]`,               
-            `支付此定金以锁定 ${tech.tech_name} 的专属档期。线下门店出示支付凭证即可。`, 
-            `booking_payload_${tech.id}_${ctx.from.id}`, 
-            PAYMENT_TOKEN,                               
-            "CNY",                                       
-            [{ label: "定金/服务费", amount: amountInCents }]
-            // 【改动点】去掉了 photo_url，彻底避免图片触发的 400 Bad Request
-        );
-        // 如果成功生成，才结束顶部的 Loading 转圈
-        await ctx.answerCallbackQuery();
-    } catch (error) {
-        console.error("生成账单失败:", error);
-        // 【核心加固】如果官方拒绝，直接把错误原因弹在屏幕正中间！
-        await ctx.answerCallbackQuery({
-            text: `⚠️ 支付接口被拒绝！\n可能原因: 价格过低(须>5元) 或 Token失效。\n错误代码: ${error.message}`,
-            show_alert: true 
-        });
-    }
-});
+👤 **预约技师：** ${tech.tech_name}
+💰 **应付金额：** \`${tech.price}\` USDT
+🌐 **转账网络：** Tron (TRC-20)
 
-bot.on("pre_checkout_query", async (ctx) => {
-    await ctx.answerPreCheckoutQuery(true);
-});
+🏦 **请将 USDT 转入下方官方收款地址：**
+（点击地址即可自动复制）
+\`${USDT_WALLET}\`
 
-bot.on("message:successful_payment", async (ctx) => {
-    const paymentInfo = ctx.message.successful_payment;
-    const payloadParts = paymentInfo.invoice_payload.split('_');
-    const techId = payloadParts[2];
+⚠️ **重要提示：**
+转账完成后，请务必点击下方按钮，将**支付成功截图**发送给您的专属客服，客服将为您立刻锁定档期安排时间！`;
 
-    await trackAction(ctx, `PAY_SUCCESS_TECH_ID_${techId}_AMT_${paymentInfo.total_amount/100}`); 
+    // 引导用户去客服那里核销
+    const keyboard = new InlineKeyboard()
+        .url("✅ 我已转账，发送截图给客服核销", tech.cs_url).row()
+        .url("❓ 不会使用 USDT？联系客服", tech.cs_url);
 
-    const { data: tech } = await supabase.from('staff_mapping').select('cs_url').eq('id', techId).single();
-    const csUrl = tech?.cs_url || "https://t.me/elephantspa_2026";
-    
-    const keyboard = new InlineKeyboard().url("向客服出示凭证预约时间", csUrl);
-    
-    await ctx.reply(`🎉 支付成功！您已成功支付 ￥${paymentInfo.total_amount / 100}。\n\n请点击下方按钮，将此界面截图发给前台安排具体时间：`, {
-        reply_markup: keyboard
+    await ctx.reply(invoiceMsg, { 
+        parse_mode: "Markdown", 
+        reply_markup: keyboard 
     });
 });
 
