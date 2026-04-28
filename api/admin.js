@@ -20,15 +20,12 @@ module.exports = async (req, res) => {
       await supabase.from("staff_mapping").delete().eq("id", id);
       return res.send("技师已下架");
       
-    // 【核心新增】：一键编辑修改逻辑
     } else if (action === "edit") {
       const updates = { tech_name, cs_url, rating: parseInt(rating) || 5, price: parseInt(price) || 0 };
-      // 只有上传了新照片才更新照片，否则保留原图
       if (media_url) updates.media_url = media_url;
       await supabase.from("staff_mapping").update(updates).eq("id", id);
       return res.send("资料修改成功！");
       
-    // 【核心新增】：快捷状态切换逻辑
     } else if (action === "toggle_status") {
       await supabase.from("staff_mapping").update({ status }).eq("id", id);
       return res.send("状态已更新");
@@ -75,15 +72,19 @@ module.exports = async (req, res) => {
         
         <div class="sidebar">
             <div class="p-6 font-extrabold text-2xl tracking-wider border-b border-gray-700">
-                🐘 大象 SPA<br><span class="text-xs text-blue-400 font-normal">SaaS 数据中台 v8.0</span>
+                🐘 大象 SPA<br><span class="text-xs text-blue-400 font-normal">SaaS 数据中台 v8.1</span>
             </div>
             <div class="flex-grow py-4">
                 <div class="menu-item active" onclick="switchTab('analytics', this)">📊 商业数据看板</div>
                 <div class="menu-item" onclick="switchTab('list', this)">👥 当值技师阵列</div>
                 <div class="menu-item" onclick="switchTab('add', this)">➕ 上架新技师</div>
             </div>
-            <div class="p-4 text-xs text-gray-500 border-t border-gray-700 text-center">
-                System Online | Matrix Mode
+            <!-- 【新增】：底部安全退出模块 -->
+            <div class="p-4 border-t border-gray-700">
+                <button onclick="clearAdminCache()" class="w-full py-2 bg-gray-700 hover:bg-red-600 text-gray-300 hover:text-white rounded-lg text-sm font-bold transition-colors flex justify-center items-center gap-2">
+                    <span>🔒 清除秘钥 (退出)</span>
+                </button>
+                <div class="text-center text-xs text-gray-500 mt-3">System Online | Matrix Mode</div>
             </div>
         </div>
 
@@ -116,10 +117,8 @@ module.exports = async (req, res) => {
                 <div class="glass-card">
                     <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
                         ${staff.map(s => `
-                            <!-- 【视觉升级】：如果处于休息状态，整个卡片变灰变暗 -->
                             <div class="bg-white border rounded-xl overflow-hidden hover:shadow-xl transition-all relative group ${s.status === 'offline' ? 'opacity-60 grayscale' : ''}">
                                 
-                                <!-- 左上角状态标识 -->
                                 <div class="absolute top-2 left-2 z-10 px-2 py-1 rounded-md text-xs font-bold shadow-sm ${s.status === 'offline' ? 'bg-red-500 text-white' : 'bg-green-500 text-white'}">
                                     ${s.status === 'offline' ? '🔴 休息中' : '🟢 接客中'}
                                 </div>
@@ -127,7 +126,6 @@ module.exports = async (req, res) => {
                                 <div class="h-48 bg-gray-100 relative">
                                     <img src="${s.media_url}" class="w-full h-full object-cover">
                                     
-                                    <!-- 【核心交互】：悬浮时展示遮罩和快捷操作按钮 -->
                                     <div class="absolute inset-0 bg-black bg-opacity-60 flex flex-col items-center justify-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
                                         <button onclick="toggleStatus(${s.id}, '${s.status === 'offline' ? 'online' : 'offline'}')" class="w-32 bg-white text-gray-900 hover:bg-gray-100 px-3 py-2 rounded-lg text-sm font-bold shadow-lg transition-transform transform hover:scale-105">
                                             ${s.status === 'offline' ? '🟢 恢复上线' : '🔴 设为休息'}
@@ -158,9 +156,13 @@ module.exports = async (req, res) => {
                 <h2 class="text-2xl font-bold text-gray-800 mb-6">新增与上架</h2>
                 <div class="glass-card max-w-2xl mx-auto">
                     <div class="space-y-5">
+                        <!-- 【视觉优化】：由于有了全局记忆系统，弱化了这里的密码输入框 -->
                         <div>
-                            <label class="block text-sm font-bold text-gray-700 mb-1">管理员口令</label>
-                            <input type="password" id="pass" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 bg-gray-50">
+                            <label class="block text-sm font-bold text-gray-700 mb-1 flex justify-between">
+                                <span>管理员口令</span>
+                                <span class="text-xs text-green-500 font-normal" id="pwdStatusTip">等待输入</span>
+                            </label>
+                            <input type="password" id="pass" placeholder="在此输入一次，系统自动记忆" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 bg-gray-50" onchange="syncPassword(this.value)">
                         </div>
                         <div>
                             <label class="block text-sm font-bold text-gray-700 mb-1">技师称呼</label>
@@ -205,16 +207,77 @@ module.exports = async (req, res) => {
 
             const mySupabase = window.supabase.createClient('${supabaseUrl}', '${supabaseKey}');
             
+            // ==========================================
+            // 【全新核心】：全局鉴权记忆引擎
+            // ==========================================
+            // 页面加载时自动从保险箱拿出密码并填入
+            window.onload = () => {
+                const savedPwd = localStorage.getItem('spa_admin_pwd');
+                if(savedPwd) {
+                    document.getElementById('pass').value = savedPwd;
+                    document.getElementById('pwdStatusTip').innerText = '已本地记忆';
+                }
+            };
+
+            // 当输入框改变时自动存入保险箱
+            function syncPassword(val) {
+                if(val) {
+                    localStorage.setItem('spa_admin_pwd', val);
+                    document.getElementById('pwdStatusTip').innerText = '已自动更新';
+                }
+            }
+
+            // 清除安全缓存
+            function clearAdminCache() {
+                localStorage.removeItem('spa_admin_pwd');
+                document.getElementById('pass').value = '';
+                document.getElementById('pwdStatusTip').innerText = '等待输入';
+                Swal.fire({
+                    icon: 'success',
+                    title: '已安全退出',
+                    text: '当前浏览器的管理秘钥已被彻底清除',
+                    timer: 2000,
+                    showConfirmButton: false
+                });
+            }
+
+            // 智能索要密码拦截器
+            async function requireAuth() {
+                let pwd = localStorage.getItem('spa_admin_pwd');
+                // 如果本地没有存，直接从屏幕中间弹出高级密码框索要
+                if (!pwd) {
+                    const { value: enteredPwd } = await Swal.fire({
+                        title: '🔐 安全验证',
+                        input: 'password',
+                        inputLabel: '请输入最高管理秘钥',
+                        inputPlaceholder: '输入后当前浏览器将自动记忆',
+                        showCancelButton: true,
+                        confirmButtonText: '验证并记忆',
+                        cancelButtonText: '取消'
+                    });
+                    if (enteredPwd) {
+                        pwd = enteredPwd;
+                        syncPassword(pwd);
+                        document.getElementById('pass').value = pwd;
+                    }
+                }
+                return pwd;
+            }
+            // ==========================================
+
+
             async function saveStaff() {
+                const password = await requireAuth();
+                if (!password) return; // 没密码则拦截
+
                 const btn = document.getElementById('submitBtn');
                 const file = document.getElementById('fileUpload').files[0];
-                const password = document.getElementById('pass').value;
                 const name = document.getElementById('name').value;
                 const cs = document.getElementById('cs').value;
                 const rating = document.getElementById('rating').value;
                 const price = document.getElementById('price').value;
 
-                if(!password || !name || !cs || !file || !price) return Swal.fire('提示', '请填完所有信息', 'warning');
+                if(!name || !cs || !file || !price) return Swal.fire('提示', '请填完所有技师信息', 'warning');
                 btn.disabled = true; btn.innerText = "数据加密上传中...";
 
                 try {
@@ -222,34 +285,44 @@ module.exports = async (req, res) => {
                     await mySupabase.storage.from('avatars').upload(fileName, file);
                     const mediaUrl = '${supabaseUrl}/storage/v1/object/public/avatars/' + fileName;
 
-                    await fetch('/api/admin', {
+                    const res = await fetch('/api/admin', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({ password, tech_name: name, media_url: mediaUrl, cs_url: cs, rating, price })
                     });
                     
+                    if(res.status !== 200) throw new Error(await res.text());
                     await Swal.fire('成功', '技师已上线！', 'success');
                     location.reload();
-                } catch (err) { Swal.fire('错误', err.message, 'error'); btn.disabled = false; btn.innerText = "确认上架并开启 USDT 收单"; }
+                } catch (err) { 
+                    Swal.fire('错误', err.message, 'error'); 
+                    btn.disabled = false; 
+                    btn.innerText = "确认上架并开启 USDT 收单"; 
+                    if(err.message.includes('密码')) clearAdminCache(); // 如果报错是密码错，自动清空缓存
+                }
             }
 
-            // 【新增功能】：修改技师状态（在线/休息）
             async function toggleStatus(id, status) {
-                const password = document.getElementById('pass').value;
-                if(!password) return Swal.fire('拦截', '请先在左侧【上架新技师】页面输入管理秘钥', 'error');
+                const password = await requireAuth();
+                if (!password) return;
                 
-                await fetch('/api/admin', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ password, id, action: 'toggle_status', status })
-                });
-                location.reload();
+                try {
+                    const res = await fetch('/api/admin', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ password, id, action: 'toggle_status', status })
+                    });
+                    if(res.status !== 200) throw new Error(await res.text());
+                    location.reload();
+                } catch(err) {
+                    Swal.fire('错误', err.message, 'error');
+                    if(err.message.includes('密码')) clearAdminCache();
+                }
             }
 
-            // 【新增功能】：一键弹出编辑窗口
             async function editStaff(id, name, cs, rating, price) {
-                const password = document.getElementById('pass').value;
-                if(!password) return Swal.fire('拦截', '请先在左侧【上架新技师】页面输入管理秘钥', 'error');
+                const password = await requireAuth();
+                if (!password) return;
 
                 const { value: formValues } = await Swal.fire({
                     title: '✏️ 极速编辑资料',
@@ -297,7 +370,6 @@ module.exports = async (req, res) => {
                     Swal.fire({title: '云端同步中...', allowOutsideClick: false, didOpen: () => {Swal.showLoading()}});
                     try {
                         let mediaUrl = null;
-                        // 如果选了新文件，则进行上传
                         if(formValues.file) {
                             const fileName = Date.now() + '_' + formValues.file.name;
                             await mySupabase.storage.from('avatars').upload(fileName, formValues.file);
@@ -319,17 +391,25 @@ module.exports = async (req, res) => {
                         location.reload();
                     } catch(err) {
                         Swal.fire('错误', err.message, 'error');
+                        if(err.message.includes('密码')) clearAdminCache();
                     }
                 }
             }
 
             async function deleteStaff(id) {
-                const password = document.getElementById('pass').value;
-                if(!password) return Swal.fire('拦截', '请先在左侧【上架新技师】页面输入管理秘钥', 'error');
+                const password = await requireAuth();
+                if (!password) return;
+
                 if(!confirm('危险：确定要彻底删除下架此技师吗？')) return;
                 
-                await fetch('/api/admin', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ password, id, action: 'delete' })});
-                location.reload();
+                try {
+                    const res = await fetch('/api/admin', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ password, id, action: 'delete' })});
+                    if(res.status !== 200) throw new Error(await res.text());
+                    location.reload();
+                } catch(err) {
+                    Swal.fire('错误', err.message, 'error');
+                    if(err.message.includes('密码')) clearAdminCache();
+                }
             }
 
             Chart.register(ChartDataLabels);
