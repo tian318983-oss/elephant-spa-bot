@@ -4,10 +4,9 @@ const { createClient } = require("@supabase/supabase-js");
 const bot = new Bot(process.env.BOT_TOKEN);
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
-// 获取店里的真实 USDT 钱包地址，如果没有配置则显示提示词
 const USDT_WALLET = process.env.USDT_WALLET || "未配置钱包地址，请联系客服";
 
-// 全链路数据埋点引擎
+// 数据埋点
 async function trackAction(ctx, actionType) {
     try {
         const { id, username } = ctx.from;
@@ -19,20 +18,25 @@ async function trackAction(ctx, actionType) {
     }
 }
 
+// 1. 开始指令 (注入全新营销文案)
 bot.command("start", async (ctx) => {
     await trackAction(ctx, "START_BOT");
     const keyboard = new InlineKeyboard()
         .text("🐘 浏览技师 & 项目", "view_tech").row()
         .url("📍 门店地图导航", "https://maps.google.com/?q=Vientiane+Elephant+SPA"); 
 
-    await ctx.reply("🐘 欢迎来到大象 SPA！\n\n我们为您提供万象最专业的泰式按摩。请点击下方体验：", { reply_markup: keyboard });
+    // 【核心修改】：替换为您指定的最新绝妙文案
+    const welcomeMsg = `🐘 欢迎来到大象 SPA！\n\n万象同城技师服务，纵享柔情凤鸣阵阵，笙歌夜夜，夜夜笙歌! 请点击下方体验：`;
+    
+    await ctx.reply(welcomeMsg, { reply_markup: keyboard });
 });
 
+// 2. 总览聚合模式 (更换 4:3 纯净版封面图)
 bot.callbackQuery("view_tech", async (ctx) => {
     await trackAction(ctx, "CLICK_TECH_LIST");
     await ctx.answerCallbackQuery();
-    
-const { data: staff } = await supabase.from('staff_mapping').select('*').neq('status', 'offline').order('rating', { ascending: false });
+
+    const { data: staff } = await supabase.from('staff_mapping').select('*').neq('status', 'offline').order('rating', { ascending: false });
     if (!staff || staff.length === 0) return ctx.reply("排班获取中，请稍后再试。");
 
     let captionMsg = "✨ 【今日值班名师阵容】\n点击查看专属资料卡与报价👇\n\n";
@@ -44,10 +48,13 @@ const { data: staff } = await supabase.from('staff_mapping').select('*').neq('st
         if ((index + 1) % 2 === 0) keyboard.row();
     });
 
-    const coverImageUrl = "https://images.unsplash.com/photo-1544161515-4ab6ce6db874?q=80&w=800&auto=format&fit=crop"; 
+    
+    const coverImageUrl = "https://cnibwcvzpcwunhxevwqq.supabase.co/storage/v1/object/public/avatars/telegram_cover_pure_4x3.png"; 
+    
     await ctx.replyWithPhoto(coverImageUrl, { caption: captionMsg, reply_markup: keyboard });
 });
 
+// 3. 专属资料卡弹出
 bot.callbackQuery(/preview_(.+)/, async (ctx) => {
     const techId = ctx.match[1];
     await trackAction(ctx, `PREVIEW_TECH_ID_${techId}`); 
@@ -61,7 +68,6 @@ bot.callbackQuery(/preview_(.+)/, async (ctx) => {
 
     const keyboard = new InlineKeyboard();
     
-    // 只要有价格，就展示直连转账按钮
     if (tech.price > 0) {
         keyboard.text(`💎 使用 USDT(TRC20) 支付锁单`, `direct_pay_${tech.id}`).row();
     }
@@ -78,9 +84,7 @@ bot.callbackQuery(/preview_(.+)/, async (ctx) => {
     }
 });
 
-// ==========================================
-// 【终极方案】：去中心化 P2P 直连收银台
-// ==========================================
+// 4. 去中心化直连收银台
 bot.callbackQuery(/direct_pay_(.+)/, async (ctx) => {
     const techId = ctx.match[1];
     await trackAction(ctx, `CLICK_DIRECT_PAY_${techId}`); 
@@ -89,7 +93,6 @@ bot.callbackQuery(/direct_pay_(.+)/, async (ctx) => {
     const { data: tech } = await supabase.from('staff_mapping').select('*').eq('id', techId).single();
     if (!tech) return;
 
-    // 构建一个极其易读的付款账单，使用 MarkdownV2 方便用户一键复制钱包地址
     const invoiceMsg = `🧾 **大象 SPA 专属锁单凭证**
 
 👤 **预约技师：** ${tech.tech_name}
@@ -103,7 +106,6 @@ bot.callbackQuery(/direct_pay_(.+)/, async (ctx) => {
 ⚠️ **重要提示：**
 转账完成后，请务必点击下方按钮，将**支付成功截图**发送给您的专属客服，客服将为您立刻锁定档期安排时间！`;
 
-    // 引导用户去客服那里核销
     const keyboard = new InlineKeyboard()
         .url("✅ 我已转账，发送截图给客服核销", tech.cs_url).row()
         .url("❓ 不会使用 USDT？联系客服", tech.cs_url);
