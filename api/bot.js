@@ -31,8 +31,8 @@ bot.command("start", async (ctx) => {
 bot.callbackQuery("view_tech", async (ctx) => {
     await trackAction(ctx, "CLICK_TECH_LIST");
     await ctx.answerCallbackQuery();
-
-    const { data: staff } = await supabase.from('staff_mapping').select('*').order('rating', { ascending: false });
+    
+const { data: staff } = await supabase.from('staff_mapping').select('*').neq('status', 'offline').order('rating', { ascending: false });
     if (!staff || staff.length === 0) return ctx.reply("排班获取中，请稍后再试。");
 
     let captionMsg = "✨ 【今日值班名师阵容】\n点击查看专属资料卡与报价👇\n\n";
