@@ -6,7 +6,6 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 module.exports = async (req, res) => {
-  // 1. 处理 POST 请求（上架/下架）
   if (req.method === "POST") {
     const { password, tech_name, cs_url, media_url, action, id, rating, price } = req.body;
 
@@ -24,14 +23,11 @@ module.exports = async (req, res) => {
     }
   }
 
-  // 2. 获取数据（技师列表 + 最近30天的埋点数据）
   const { data: staff } = await supabase.from("staff_mapping").select("*").order("id", { ascending: true });
   
-  // 获取 30 天内的数据以防数据量过大导致页面崩溃
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
   const { data: logs } = await supabase.from("user_logs").select("*").gte("created_at", thirtyDaysAgo).order("created_at", { ascending: true });
 
-  // 3. 构建前端 SaaS 页面
   const html = `
     <!DOCTYPE html>
     <html lang="zh">
@@ -42,26 +38,29 @@ module.exports = async (req, res) => {
         <script src="https://cdn.tailwindcss.com"></script>
         <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
         <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-        <!-- 引入 Chart.js 数据可视化库 -->
+        <!-- 引入 Chart.js 及 数据标签直显插件 -->
         <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
         <style>
             body { background-color: #f3f4f6; display: flex; min-height: 100vh; }
             .sidebar { width: 250px; background-color: #1e293b; color: white; display: flex; flex-direction: column; }
             .main-content { flex-grow: 1; padding: 2rem; overflow-y: auto; height: 100vh;}
-            .menu-item { padding: 1rem 1.5rem; cursor: pointer; transition: all 0.3s; display: flex; items-center; gap: 0.5rem; }
+            .menu-item { padding: 1rem 1.5rem; cursor: pointer; transition: all 0.3s; display: flex; align-items: center; gap: 0.5rem; }
             .menu-item:hover, .menu-item.active { background-color: #334155; border-left: 4px solid #3b82f6; }
             .glass-card { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); border-radius: 1rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); padding: 1.5rem; }
-            .page-section { display: none; animation: fadeIn 0.5s; }
+            .page-section { display: none; animation: fadeIn 0.4s; }
             .page-section.active { display: block; }
             @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+            
+            /* 【核心修复】：为图表提供绝对安全的物理隔离舱，防止渲染卡死 */
+            .chart-container { position: relative; height: 320px; width: 100%; }
         </style>
     </head>
     <body>
         
-        <!-- 左侧导航栏 -->
         <div class="sidebar">
             <div class="p-6 font-extrabold text-2xl tracking-wider border-b border-gray-700">
-                🐘 大象 SPA<br><span class="text-xs text-blue-400 font-normal">SaaS 数据中台 v7.0</span>
+                🐘 大象 SPA<br><span class="text-xs text-blue-400 font-normal">SaaS 数据中台 v7.1</span>
             </div>
             <div class="flex-grow py-4">
                 <div class="menu-item active" onclick="switchTab('analytics', this)">📊 商业数据看板</div>
@@ -73,31 +72,31 @@ module.exports = async (req, res) => {
             </div>
         </div>
 
-        <!-- 右侧主内容区 -->
         <div class="main-content">
             
-            <!-- 页面1：数据看板 (Analytics) -->
             <div id="analytics" class="page-section active">
                 <div class="flex justify-between items-center mb-6">
                     <h2 class="text-2xl font-bold text-gray-800">商业数据看板</h2>
-                    <span class="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold">数据已同步 (近30天)</span>
+                    <span class="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold shadow-sm">数据已同步 (直观曲线版)</span>
                 </div>
                 
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                    <!-- 流量折线图 -->
                     <div class="glass-card">
-                        <h3 class="text-lg font-bold mb-4 text-gray-700">📈 近期流量趋势 (点击量)</h3>
-                        <canvas id="trafficChart" height="200"></canvas>
+                        <h3 class="text-lg font-bold mb-4 text-gray-700">📈 近期流量趋势图 (访问人次)</h3>
+                        <!-- 【核心修复】：加上固定的隔离舱 -->
+                        <div class="chart-container">
+                            <canvas id="trafficChart"></canvas>
+                        </div>
                     </div>
-                    <!-- 技师热度柱状图 -->
                     <div class="glass-card">
-                        <h3 class="text-lg font-bold mb-4 text-gray-700">🔥 技师受关注热度榜单</h3>
-                        <canvas id="techPopularityChart" height="200"></canvas>
+                        <h3 class="text-lg font-bold mb-4 text-gray-700">🔥 技师名片被点击热度</h3>
+                        <div class="chart-container">
+                            <canvas id="techPopularityChart"></canvas>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <!-- 页面2：技师阵列 (List) -->
             <div id="list" class="page-section">
                 <h2 class="text-2xl font-bold text-gray-800 mb-6">当前当值阵容</h2>
                 <div class="glass-card">
@@ -122,7 +121,6 @@ module.exports = async (req, res) => {
                 </div>
             </div>
 
-            <!-- 页面3：上架技师 (Add) -->
             <div id="add" class="page-section">
                 <h2 class="text-2xl font-bold text-gray-800 mb-6">新增与上架</h2>
                 <div class="glass-card max-w-2xl mx-auto">
@@ -165,7 +163,6 @@ module.exports = async (req, res) => {
         </div>
 
         <script>
-            // === 页面切换逻辑 ===
             function switchTab(tabId, element) {
                 document.querySelectorAll('.page-section').forEach(el => el.classList.remove('active'));
                 document.querySelectorAll('.menu-item').forEach(el => el.classList.remove('active'));
@@ -173,7 +170,6 @@ module.exports = async (req, res) => {
                 element.classList.add('active');
             }
 
-            // === 数据库通信逻辑 ===
             const mySupabase = window.supabase.createClient('${supabaseUrl}', '${supabaseKey}');
             
             async function saveStaff() {
@@ -206,21 +202,23 @@ module.exports = async (req, res) => {
 
             async function deleteStaff(id) {
                 const password = document.getElementById('pass').value;
-                if(!password) return Swal.fire('拦截', '请先在【上架技师】页面输入管理秘钥，再来下架', 'error');
+                if(!password) return Swal.fire('拦截', '请先在左侧输入管理秘钥', 'error');
                 if(!confirm('危险：确定要下架此技师吗？')) return;
                 
                 await fetch('/api/admin', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ password, id, action: 'delete' })});
                 location.reload();
             }
 
-            // === Chart.js 数据处理与渲染引擎 ===
+            // === 注册全局数据直显插件 ===
+            Chart.register(ChartDataLabels);
+
             const rawLogs = ${JSON.stringify(logs || [])};
             const staffList = ${JSON.stringify(staff || [])};
 
-            // 1. 处理折线图数据 (按天统计启动和浏览动作)
+            // 1. 处理曲线图数据
             const dailyData = {};
             rawLogs.forEach(log => {
-                const date = new Date(log.created_at).toLocaleDateString();
+                const date = new Date(log.created_at).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
                 if(!dailyData[date]) dailyData[date] = { start: 0, view: 0 };
                 
                 if(log.action_type === 'START_BOT') dailyData[date].start++;
@@ -236,15 +234,40 @@ module.exports = async (req, res) => {
                 data: {
                     labels: labelsLine,
                     datasets: [
-                        { label: '机器人启动数', data: dataStart, borderColor: '#94a3b8', tension: 0.3 },
-                        { label: '点开技师列表数', data: dataView, borderColor: '#3b82f6', tension: 0.3, fill: true, backgroundColor: 'rgba(59, 130, 246, 0.1)' }
+                        { 
+                            label: '机器人启动人次', 
+                            data: dataStart, 
+                            borderColor: '#94a3b8', 
+                            tension: 0.4, // 【核心升级】：变成丝滑的贝塞尔曲线
+                            pointBackgroundColor: '#94a3b8',
+                            datalabels: { color: '#94a3b8', align: 'top', font: {weight: 'bold'} } // 直显数字
+                        },
+                        { 
+                            label: '点开技师列表数', 
+                            data: dataView, 
+                            borderColor: '#3b82f6', 
+                            tension: 0.4, // 【核心升级】：丝滑曲线
+                            fill: true, 
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            pointBackgroundColor: '#3b82f6',
+                            datalabels: { color: '#3b82f6', align: 'bottom', font: {weight: 'bold'} } // 直显数字
+                        }
                     ]
                 },
-                options: { responsive: true, maintainAspectRatio: false }
+                options: { 
+                    responsive: true, 
+                    maintainAspectRatio: false,
+                    plugins: {
+                        datalabels: {
+                            // 只有当数字大于0时才显示，避免界面太乱
+                            formatter: function(value) { return value > 0 ? value : ''; }
+                        }
+                    },
+                    scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+                }
             });
 
-            // 2. 处理柱状图数据 (技师热度分析)
-            // 找出所有 PREVIEW_TECH_ID_xxx 动作
+            // 2. 处理柱状图数据
             const techClicks = {};
             rawLogs.forEach(log => {
                 if(log.action_type && log.action_type.startsWith('PREVIEW_TECH_ID_')) {
@@ -253,7 +276,6 @@ module.exports = async (req, res) => {
                 }
             });
 
-            // 将 ID 映射为技师真实名字
             const labelsBar = [];
             const dataBar = [];
             staffList.forEach(s => {
@@ -269,10 +291,20 @@ module.exports = async (req, res) => {
                         label: '名片被点击次数',
                         data: dataBar,
                         backgroundColor: '#60a5fa',
-                        borderRadius: 4
+                        borderRadius: 6,
+                        datalabels: { color: '#ffffff', align: 'center', font: {weight: 'bold', size: 14} } // 柱子中间直接显数字
                     }]
                 },
-                options: { responsive: true, maintainAspectRatio: false }
+                options: { 
+                    responsive: true, 
+                    maintainAspectRatio: false,
+                    plugins: {
+                        datalabels: {
+                            formatter: function(value) { return value > 0 ? value : ''; }
+                        }
+                    },
+                    scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+                }
             });
         </script>
     </body>
