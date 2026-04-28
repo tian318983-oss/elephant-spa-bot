@@ -6,13 +6,12 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 module.exports = async (req, res) => {
-  // 【核心修复 A】：加入大厂级 BI 数据中台的反缓存指令，保证每次 F5 刷新都是绝对的实时数据！
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
 
   if (req.method === "POST") {
-    const { password, tech_name, cs_url, media_url, action, id, rating, price } = req.body;
+    const { password, tech_name, cs_url, media_url, action, id, rating, price, status } = req.body;
 
     if (!ADMIN_PASSWORD) return res.status(500).send("请在 Vercel 设置 ADMIN_PASSWORD");
     if (password !== ADMIN_PASSWORD) return res.status(403).send("密码错误！");
@@ -20,10 +19,24 @@ module.exports = async (req, res) => {
     if (action === "delete") {
       await supabase.from("staff_mapping").delete().eq("id", id);
       return res.send("技师已下架");
+      
+    // 【核心新增】：一键编辑修改逻辑
+    } else if (action === "edit") {
+      const updates = { tech_name, cs_url, rating: parseInt(rating) || 5, price: parseInt(price) || 0 };
+      // 只有上传了新照片才更新照片，否则保留原图
+      if (media_url) updates.media_url = media_url;
+      await supabase.from("staff_mapping").update(updates).eq("id", id);
+      return res.send("资料修改成功！");
+      
+    // 【核心新增】：快捷状态切换逻辑
+    } else if (action === "toggle_status") {
+      await supabase.from("staff_mapping").update({ status }).eq("id", id);
+      return res.send("状态已更新");
+      
     } else {
       const parsedRating = parseInt(rating) || 5;
       const parsedPrice = parseInt(price) || 0;
-      await supabase.from("staff_mapping").insert([{ tech_name, cs_url, media_url, rating: parsedRating, price: parsedPrice }]);
+      await supabase.from("staff_mapping").insert([{ tech_name, cs_url, media_url, rating: parsedRating, price: parsedPrice, status: 'online' }]);
       return res.send("技师上线成功！");
     }
   }
@@ -43,7 +56,6 @@ module.exports = async (req, res) => {
         <script src="https://cdn.tailwindcss.com"></script>
         <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
         <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-        <!-- 引入 Chart.js 及 数据标签直显插件 -->
         <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
         <style>
@@ -56,8 +68,6 @@ module.exports = async (req, res) => {
             .page-section { display: none; animation: fadeIn 0.4s; }
             .page-section.active { display: block; }
             @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-            
-            /* 为图表提供绝对安全的物理隔离舱，防止渲染卡死 */
             .chart-container { position: relative; height: 320px; width: 100%; }
         </style>
     </head>
@@ -65,7 +75,7 @@ module.exports = async (req, res) => {
         
         <div class="sidebar">
             <div class="p-6 font-extrabold text-2xl tracking-wider border-b border-gray-700">
-                🐘 大象 SPA<br><span class="text-xs text-blue-400 font-normal">SaaS 数据中台 v7.1</span>
+                🐘 大象 SPA<br><span class="text-xs text-blue-400 font-normal">SaaS 数据中台 v8.0</span>
             </div>
             <div class="flex-grow py-4">
                 <div class="menu-item active" onclick="switchTab('analytics', this)">📊 商业数据看板</div>
@@ -73,7 +83,7 @@ module.exports = async (req, res) => {
                 <div class="menu-item" onclick="switchTab('add', this)">➕ 上架新技师</div>
             </div>
             <div class="p-4 text-xs text-gray-500 border-t border-gray-700 text-center">
-                System Online | Web3 Mode
+                System Online | Matrix Mode
             </div>
         </div>
 
@@ -106,10 +116,29 @@ module.exports = async (req, res) => {
                 <div class="glass-card">
                     <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
                         ${staff.map(s => `
-                            <div class="bg-white border rounded-xl overflow-hidden hover:shadow-xl transition-all relative group">
+                            <!-- 【视觉升级】：如果处于休息状态，整个卡片变灰变暗 -->
+                            <div class="bg-white border rounded-xl overflow-hidden hover:shadow-xl transition-all relative group ${s.status === 'offline' ? 'opacity-60 grayscale' : ''}">
+                                
+                                <!-- 左上角状态标识 -->
+                                <div class="absolute top-2 left-2 z-10 px-2 py-1 rounded-md text-xs font-bold shadow-sm ${s.status === 'offline' ? 'bg-red-500 text-white' : 'bg-green-500 text-white'}">
+                                    ${s.status === 'offline' ? '🔴 休息中' : '🟢 接客中'}
+                                </div>
+
                                 <div class="h-48 bg-gray-100 relative">
                                     <img src="${s.media_url}" class="w-full h-full object-cover">
-                                    <button onclick="deleteStaff(${s.id})" class="absolute top-2 right-2 bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-xs opacity-0 group-hover:opacity-100 transition-opacity shadow-lg">下架</button>
+                                    
+                                    <!-- 【核心交互】：悬浮时展示遮罩和快捷操作按钮 -->
+                                    <div class="absolute inset-0 bg-black bg-opacity-60 flex flex-col items-center justify-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button onclick="toggleStatus(${s.id}, '${s.status === 'offline' ? 'online' : 'offline'}')" class="w-32 bg-white text-gray-900 hover:bg-gray-100 px-3 py-2 rounded-lg text-sm font-bold shadow-lg transition-transform transform hover:scale-105">
+                                            ${s.status === 'offline' ? '🟢 恢复上线' : '🔴 设为休息'}
+                                        </button>
+                                        <button onclick="editStaff(${s.id}, \`${s.tech_name}\`, \`${s.cs_url}\`, ${s.rating}, ${s.price})" class="w-32 bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-bold shadow-lg transition-transform transform hover:scale-105">
+                                            ✏️ 极速编辑
+                                        </button>
+                                        <button onclick="deleteStaff(${s.id})" class="w-32 bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-lg text-sm font-bold shadow-lg transition-transform transform hover:scale-105">
+                                            🗑️ 彻底下架
+                                        </button>
+                                    </div>
                                 </div>
                                 <div class="p-4">
                                     <h3 class="font-bold flex justify-between items-center">
@@ -204,26 +233,111 @@ module.exports = async (req, res) => {
                 } catch (err) { Swal.fire('错误', err.message, 'error'); btn.disabled = false; btn.innerText = "确认上架并开启 USDT 收单"; }
             }
 
+            // 【新增功能】：修改技师状态（在线/休息）
+            async function toggleStatus(id, status) {
+                const password = document.getElementById('pass').value;
+                if(!password) return Swal.fire('拦截', '请先在左侧【上架新技师】页面输入管理秘钥', 'error');
+                
+                await fetch('/api/admin', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ password, id, action: 'toggle_status', status })
+                });
+                location.reload();
+            }
+
+            // 【新增功能】：一键弹出编辑窗口
+            async function editStaff(id, name, cs, rating, price) {
+                const password = document.getElementById('pass').value;
+                if(!password) return Swal.fire('拦截', '请先在左侧【上架新技师】页面输入管理秘钥', 'error');
+
+                const { value: formValues } = await Swal.fire({
+                    title: '✏️ 极速编辑资料',
+                    html: \`
+                        <div class="space-y-4 text-left p-2">
+                            <div><label class="text-xs font-bold text-gray-600">技师称呼</label>
+                            <input id="swal-name" class="w-full px-3 py-2 border rounded bg-gray-50 focus:ring-2 focus:ring-blue-500" value="\${name}"></div>
+                            
+                            <div class="flex gap-4">
+                                <div class="w-1/2"><label class="text-xs font-bold text-gray-600">服务费 (USDT)</label>
+                                <input id="swal-price" type="number" class="w-full px-3 py-2 border rounded bg-gray-50 focus:ring-2 focus:ring-blue-500" value="\${price}"></div>
+                                
+                                <div class="w-1/2"><label class="text-xs font-bold text-gray-600">星级评定</label>
+                                <select id="swal-rating" class="w-full px-3 py-2 border rounded bg-gray-50 focus:ring-2 focus:ring-blue-500">
+                                    <option value="5" \${rating==5?'selected':''}>⭐⭐⭐⭐⭐</option>
+                                    <option value="4" \${rating==4?'selected':''}>⭐⭐⭐⭐</option>
+                                    <option value="3" \${rating==3?'selected':''}>⭐⭐⭐</option>
+                                </select></div>
+                            </div>
+
+                            <div><label class="text-xs font-bold text-gray-600">客服链接</label>
+                            <input id="swal-cs" class="w-full px-3 py-2 border rounded bg-gray-50 focus:ring-2 focus:ring-blue-500" value="\${cs}"></div>
+
+                            <div><label class="text-xs font-bold text-blue-500">更新照片 (不选则保留原照片)</label>
+                            <input type="file" id="swal-file" class="w-full text-sm border rounded p-1 bg-white" accept="image/*,video/mp4"></div>
+                        </div>
+                    \`,
+                    focusConfirm: false,
+                    showCancelButton: true,
+                    confirmButtonText: '保存修改',
+                    cancelButtonText: '取消',
+                    confirmButtonColor: '#3b82f6',
+                    preConfirm: () => {
+                        return {
+                            name: document.getElementById('swal-name').value,
+                            price: document.getElementById('swal-price').value,
+                            cs: document.getElementById('swal-cs').value,
+                            rating: document.getElementById('swal-rating').value,
+                            file: document.getElementById('swal-file').files[0]
+                        }
+                    }
+                });
+
+                if (formValues) {
+                    Swal.fire({title: '云端同步中...', allowOutsideClick: false, didOpen: () => {Swal.showLoading()}});
+                    try {
+                        let mediaUrl = null;
+                        // 如果选了新文件，则进行上传
+                        if(formValues.file) {
+                            const fileName = Date.now() + '_' + formValues.file.name;
+                            await mySupabase.storage.from('avatars').upload(fileName, formValues.file);
+                            mediaUrl = '${supabaseUrl}/storage/v1/object/public/avatars/' + fileName;
+                        }
+                        
+                        const res = await fetch('/api/admin', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({
+                                password, id, action: 'edit',
+                                tech_name: formValues.name, cs_url: formValues.cs,
+                                rating: formValues.rating, price: formValues.price,
+                                media_url: mediaUrl
+                            })
+                        });
+                        
+                        if(res.status !== 200) throw new Error(await res.text());
+                        location.reload();
+                    } catch(err) {
+                        Swal.fire('错误', err.message, 'error');
+                    }
+                }
+            }
+
             async function deleteStaff(id) {
                 const password = document.getElementById('pass').value;
-                if(!password) return Swal.fire('拦截', '请先在左侧输入管理秘钥', 'error');
-                if(!confirm('危险：确定要下架此技师吗？')) return;
+                if(!password) return Swal.fire('拦截', '请先在左侧【上架新技师】页面输入管理秘钥', 'error');
+                if(!confirm('危险：确定要彻底删除下架此技师吗？')) return;
                 
                 await fetch('/api/admin', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ password, id, action: 'delete' })});
                 location.reload();
             }
 
-            // === 注册全局数据直显插件 ===
             Chart.register(ChartDataLabels);
 
             const rawLogs = ${JSON.stringify(logs || [])};
             const staffList = ${JSON.stringify(staff || [])};
 
-            // 1. 处理曲线图数据
             const dailyData = {};
-            
-            // 【核心修复 B】：防白屏兜底机制。即使数据库因为 RLS 锁定导致目前是 0 条数据，
-            // 也会强行画出“今天”的坐标轴，让老板看着舒服。
             const todayStr = new Date().toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
             dailyData[todayStr] = { start: 0, view: 0 };
 
@@ -267,24 +381,11 @@ module.exports = async (req, res) => {
                 options: { 
                     responsive: true, 
                     maintainAspectRatio: false,
-                    plugins: {
-                        datalabels: {
-                            // 只有当数字大于0时才显示标签，保证图表清爽
-                            formatter: function(value) { return value > 0 ? value : ''; }
-                        }
-                    },
-                    scales: { 
-                        y: { 
-                            beginAtZero: true, 
-                            ticks: { precision: 0 },
-                            // 【防白屏】：强制 Y 轴最小也要有个 5 的高度，显得图表有空间感
-                            suggestedMax: 5 
-                        } 
-                    }
+                    plugins: { datalabels: { formatter: function(value) { return value > 0 ? value : ''; } } },
+                    scales: { y: { beginAtZero: true, ticks: { precision: 0 }, suggestedMax: 5 } }
                 }
             });
 
-            // 2. 处理柱状图数据
             const techClicks = {};
             rawLogs.forEach(log => {
                 if(log.action_type && log.action_type.startsWith('PREVIEW_TECH_ID_')) {
@@ -315,18 +416,8 @@ module.exports = async (req, res) => {
                 options: { 
                     responsive: true, 
                     maintainAspectRatio: false,
-                    plugins: {
-                        datalabels: {
-                            formatter: function(value) { return value > 0 ? value : ''; }
-                        }
-                    },
-                    scales: { 
-                        y: { 
-                            beginAtZero: true, 
-                            ticks: { precision: 0 },
-                            suggestedMax: 5 
-                        } 
-                    }
+                    plugins: { datalabels: { formatter: function(value) { return value > 0 ? value : ''; } } },
+                    scales: { y: { beginAtZero: true, ticks: { precision: 0 }, suggestedMax: 5 } }
                 }
             });
         </script>
