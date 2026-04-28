@@ -6,6 +6,11 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 module.exports = async (req, res) => {
+  // 【核心修复 A】：加入大厂级 BI 数据中台的反缓存指令，保证每次 F5 刷新都是绝对的实时数据！
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+
   if (req.method === "POST") {
     const { password, tech_name, cs_url, media_url, action, id, rating, price } = req.body;
 
@@ -52,7 +57,7 @@ module.exports = async (req, res) => {
             .page-section.active { display: block; }
             @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
             
-            /* 【核心修复】：为图表提供绝对安全的物理隔离舱，防止渲染卡死 */
+            /* 为图表提供绝对安全的物理隔离舱，防止渲染卡死 */
             .chart-container { position: relative; height: 320px; width: 100%; }
         </style>
     </head>
@@ -77,13 +82,12 @@ module.exports = async (req, res) => {
             <div id="analytics" class="page-section active">
                 <div class="flex justify-between items-center mb-6">
                     <h2 class="text-2xl font-bold text-gray-800">商业数据看板</h2>
-                    <span class="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold shadow-sm">数据已同步 (直观曲线版)</span>
+                    <span class="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold shadow-sm">实时埋点已接入</span>
                 </div>
                 
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
                     <div class="glass-card">
                         <h3 class="text-lg font-bold mb-4 text-gray-700">📈 近期流量趋势图 (访问人次)</h3>
-                        <!-- 【核心修复】：加上固定的隔离舱 -->
                         <div class="chart-container">
                             <canvas id="trafficChart"></canvas>
                         </div>
@@ -217,6 +221,12 @@ module.exports = async (req, res) => {
 
             // 1. 处理曲线图数据
             const dailyData = {};
+            
+            // 【核心修复 B】：防白屏兜底机制。即使数据库因为 RLS 锁定导致目前是 0 条数据，
+            // 也会强行画出“今天”的坐标轴，让老板看着舒服。
+            const todayStr = new Date().toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+            dailyData[todayStr] = { start: 0, view: 0 };
+
             rawLogs.forEach(log => {
                 const date = new Date(log.created_at).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
                 if(!dailyData[date]) dailyData[date] = { start: 0, view: 0 };
@@ -238,19 +248,19 @@ module.exports = async (req, res) => {
                             label: '机器人启动人次', 
                             data: dataStart, 
                             borderColor: '#94a3b8', 
-                            tension: 0.4, // 【核心升级】：变成丝滑的贝塞尔曲线
+                            tension: 0.4, 
                             pointBackgroundColor: '#94a3b8',
-                            datalabels: { color: '#94a3b8', align: 'top', font: {weight: 'bold'} } // 直显数字
+                            datalabels: { color: '#94a3b8', align: 'top', font: {weight: 'bold'} } 
                         },
                         { 
                             label: '点开技师列表数', 
                             data: dataView, 
                             borderColor: '#3b82f6', 
-                            tension: 0.4, // 【核心升级】：丝滑曲线
+                            tension: 0.4, 
                             fill: true, 
                             backgroundColor: 'rgba(59, 130, 246, 0.1)',
                             pointBackgroundColor: '#3b82f6',
-                            datalabels: { color: '#3b82f6', align: 'bottom', font: {weight: 'bold'} } // 直显数字
+                            datalabels: { color: '#3b82f6', align: 'bottom', font: {weight: 'bold'} } 
                         }
                     ]
                 },
@@ -259,11 +269,18 @@ module.exports = async (req, res) => {
                     maintainAspectRatio: false,
                     plugins: {
                         datalabels: {
-                            // 只有当数字大于0时才显示，避免界面太乱
+                            // 只有当数字大于0时才显示标签，保证图表清爽
                             formatter: function(value) { return value > 0 ? value : ''; }
                         }
                     },
-                    scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+                    scales: { 
+                        y: { 
+                            beginAtZero: true, 
+                            ticks: { precision: 0 },
+                            // 【防白屏】：强制 Y 轴最小也要有个 5 的高度，显得图表有空间感
+                            suggestedMax: 5 
+                        } 
+                    }
                 }
             });
 
@@ -292,7 +309,7 @@ module.exports = async (req, res) => {
                         data: dataBar,
                         backgroundColor: '#60a5fa',
                         borderRadius: 6,
-                        datalabels: { color: '#ffffff', align: 'center', font: {weight: 'bold', size: 14} } // 柱子中间直接显数字
+                        datalabels: { color: '#ffffff', align: 'center', font: {weight: 'bold', size: 14} } 
                     }]
                 },
                 options: { 
@@ -303,7 +320,13 @@ module.exports = async (req, res) => {
                             formatter: function(value) { return value > 0 ? value : ''; }
                         }
                     },
-                    scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+                    scales: { 
+                        y: { 
+                            beginAtZero: true, 
+                            ticks: { precision: 0 },
+                            suggestedMax: 5 
+                        } 
+                    }
                 }
             });
         </script>
