@@ -115,5 +115,42 @@ bot.callbackQuery(/direct_pay_(.+)/, async (ctx) => {
         reply_markup: keyboard 
     });
 });
+// ... existing code ...
+    // 去数据库抓取对应客服链接，给客户发收据
+    const { data: tech } = await supabase.from('staff_mapping').select('cs_url').eq('id', techId).single();
+    const csUrl = tech?.cs_url || "https://t.me/elephantspa_2026";
+    
+    const keyboard = new InlineKeyboard().url("向客服出示凭证预约时间", csUrl);
+    
+    await ctx.reply(`🎉 支付成功！您已成功支付 $${paymentInfo.total_amount / 100} USD。\n\n请点击下方按钮，将此界面截图发给前台安排具体时间：`, {
+        reply_markup: keyboard
+    });
+});
 
+// ==========================================
+// 【全新核心】：社群自动迎宾与防刷屏系统
+// ==========================================
+bot.on("message:new_chat_members", async (ctx) => {
+    const newMembers = ctx.message.new_chat_members;
+    for (const member of newMembers) {
+        // 过滤掉其他同行拉进来的广告机器人
+        if (member.is_bot) continue; 
+
+        const welcomeMsg = `🎉 欢迎老板 [${member.first_name}](tg://user?id=${member.id}) 加入大象 SPA 官方交流群！\n\n💎 **看照选人 / USDT锁单 / 预约档期**\n👉 请直接私聊官方系统：@elephantspaBot\n\n⚠️ 注：为保护您的隐私，选人请点击上方蓝字进入私密服务舱。`;
+
+        // 发送欢迎语
+        const sentMessage = await ctx.reply(welcomeMsg, { parse_mode: "Markdown" });
+        
+        // 【高级功能】：60秒后自动撤回欢迎语，保持群聊极其干净清爽！
+        setTimeout(async () => {
+            try {
+                await ctx.api.deleteMessage(ctx.chat.id, sentMessage.message_id);
+            } catch (e) {
+                console.log("撤回欢迎语失败，请确保在群设置中给了机器人'Delete Messages(删除消息)'的权限");
+            }
+        }, 60000); 
+    }
+});
+
+module.exports = webhookCallback(bot, "https");
 module.exports = webhookCallback(bot, "https");
